@@ -1,0 +1,37 @@
+name: Deploy Voice Reader PWA
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          pip install flet pypdf openpyxl pyttsx3
+
+      - name: Build Flet Web App
+        run: |
+          # The base URL must match the repository name for GitHub Pages user sites
+          # Assuming repo name is 'anti-gravity-voice-reader'
+          flet build web --base /anti-gravity-voice-reader/
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
