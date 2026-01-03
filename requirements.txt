@@ -1,0 +1,4 @@
+flet
+pypdf
+openpyxl
+pyttsx3
