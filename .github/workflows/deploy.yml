@@ -27,8 +27,8 @@ jobs:
       - name: Build Flet Web App
         run: |
           # The base URL must match the repository name for GitHub Pages user sites
-          # Assuming repo name is 'anti-gravity-voice-reader'
-          flet build web --base /anti-gravity-voice-reader/
+          # Using 'yes' to auto-accept Flutter SDK installation prompt
+          yes | flet build web --base /anti-gravity-voice-reader/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
