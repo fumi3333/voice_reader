@@ -55,9 +55,16 @@ class _HomePageState extends State<HomePage> {
     _loadHistory();
   }
 
-  void _initTts() {
+  void _initTts() async {
     flutterTts = FlutterTts();
     
+    // Modern FlutterTTS setup
+    await flutterTts.setLanguage("ja-JP");
+    await flutterTts.setSpeechRate(0.5);
+    await flutterTts.setVolume(1.0);
+    await flutterTts.setPitch(1.0);
+    await flutterTts.awaitSpeakCompletion(true);
+
     flutterTts.setStartHandler(() {
       setState(() => _isPlaying = true);
     });
@@ -69,18 +76,14 @@ class _HomePageState extends State<HomePage> {
     flutterTts.setErrorHandler((msg) {
       setState(() => _isPlaying = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("TTS Error: $msg")),
+        SnackBar(content: Text("読み上げエラー: $msg")),
       );
     });
   }
 
   Future<void> _loadHistory() async {
     final prefs = await SharedPreferences.getInstance();
-    final List<String>? historyList = prefs.getStringList('history_encoded'); // JSON string lists
-    // Simplified: We'll use encoded strings "TITLE|DATE|CONTENT" for MVP simplicity
-    // or just separate lists. Let's use separate lists for robustness or JSON.
-    // For MVP, we won't implement complex JSON serialization manually in this single file easily without code gen.
-    // We will use a simple separator approach "|||"
+    final List<String>? historyList = prefs.getStringList('history_encoded');
     
     if (historyList != null) {
       setState(() {
@@ -90,7 +93,7 @@ class _HomePageState extends State<HomePage> {
               return {
                 "title": parts[0],
                 "date": parts[1],
-                "content": parts.sublist(2).join("|||") // Rejoin content if it had separator
+                "content": parts.sublist(2).join("|||")
               };
             }
             return {"title": "?", "date": "?", "content": ""};
@@ -138,7 +141,7 @@ class _HomePageState extends State<HomePage> {
             text = PdfTextExtractor(document).extractText();
             document.dispose();
           } catch (e) {
-            text = "Error reading PDF: $e";
+            text = "PDF読み込みエラー: $e";
           }
         } else if (ext == 'xlsx') {
             var bytes = file.readAsBytesSync();
@@ -159,13 +162,14 @@ class _HomePageState extends State<HomePage> {
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error picking file: $e")),
+        SnackBar(content: Text("ファイル選択エラー: $e")),
       );
     }
   }
 
   Future<void> _speak() async {
     if (_currentContent.isEmpty) return;
+    // Ensure params are set before speaking
     await flutterTts.setLanguage("ja-JP");
     await flutterTts.setSpeechRate(_speechRate);
     await flutterTts.speak(_currentContent);
@@ -188,10 +192,10 @@ class _HomePageState extends State<HomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Current File: $_currentTitle", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text("ファイル名: $_currentTitle", style: const TextStyle(fontWeight: FontWeight.bold)),
                   const Divider(),
                   _currentContent.isEmpty 
-                    ? const Text("No content loaded. Tap + to load a file.", style: TextStyle(color: Colors.grey))
+                    ? const Text("読み込むファイルがありません。\n右下の + ボタンを押してファイルを選択してください。", style: TextStyle(color: Colors.grey))
                     : Text(_currentContent),
                 ],
               ),
@@ -204,7 +208,7 @@ class _HomePageState extends State<HomePage> {
                children: [
                  Row(
                    children: [
-                     const Text("Speed"),
+                     const Text("速度"),
                      Expanded(
                        child: Slider(
                          value: _speechRate,
@@ -213,7 +217,7 @@ class _HomePageState extends State<HomePage> {
                          onChanged: (val) => setState(() => _speechRate = val),
                        ),
                      ),
-                     Text("${_speechRate.toStringAsFixed(1)}x"),
+                     Text("${_speechRate.toStringAsFixed(1)}倍"),
                    ],
                  ),
                  Row(
@@ -222,13 +226,13 @@ class _HomePageState extends State<HomePage> {
                      ElevatedButton.icon(
                        onPressed: _isPlaying ? null : _speak,
                        icon: const Icon(Icons.play_arrow),
-                       label: const Text("Play"),
+                       label: const Text("再生"),
                      ),
                      const SizedBox(width: 20),
                      ElevatedButton.icon(
                        onPressed: _isPlaying ? _stop : null,
                        icon: const Icon(Icons.stop),
-                       label: const Text("Stop"),
+                       label: const Text("停止"),
                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade100),
                      ),
                    ],
@@ -275,8 +279,8 @@ class _HomePageState extends State<HomePage> {
         selectedIndex: _selectedIndex,
         onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.record_voice_over), label: "Reader"),
-          NavigationDestination(icon: Icon(Icons.history), label: "History"),
+          NavigationDestination(icon: Icon(Icons.record_voice_over), label: "リーダー"),
+          NavigationDestination(icon: Icon(Icons.history), label: "履歴"),
         ],
       ),
     );
