@@ -16,6 +16,9 @@ dependencies:
   syncfusion_flutter_pdf: ^24.1.41
   excel: ^4.0.0
 
+dependency_overrides:
+  flutter_plugin_android_lifecycle: 2.0.23
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
