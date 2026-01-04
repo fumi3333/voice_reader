@@ -1,13 +1,9 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:excel/excel.dart';
-// import 'package:read_pdf_text/read_pdf_text.dart'; // Using conditional import or checking standard availability
-// Note: Simpler PDF text extraction package might be needed. 
-// For now we will assume 'pdf_text' or similar is available in pubspec.
-import 'package:pdf_text/pdf_text.dart'; 
+import 'package:syncfusion_flutter_pdf/pdf.dart'; 
 
 void main() {
   runApp(const MyApp());
@@ -137,8 +133,9 @@ class _HomePageState extends State<HomePage> {
         } else if (ext == 'pdf') {
           // PDF Parsing
           try {
-            PDFDoc doc = await PDFDoc.fromPath(file.path);
-            text = await doc.text;
+            final PdfDocument document = PdfDocument(inputBytes: file.readAsBytesSync());
+            text = PdfTextExtractor(document).extractText();
+            document.dispose();
           } catch (e) {
             text = "Error reading PDF: $e";
           }

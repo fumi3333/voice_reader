@@ -46,6 +46,11 @@ jobs:
           # 3. Initialize a new Flutter project in the current directory
           flutter create . --project-name=voice_reader --org=com.fumi3333 --platforms=android
           
+          # Fix 1: Force compileSdk 35 (Required by flutter_plugin_android_lifecycle)
+          sed -i 's/compileSdk = [0-9]*/compileSdk = 35/g' android/app/build.gradle || echo "compileSdk replacement failed or not found"
+          
+          # Suggestion: Also ensure namespace is set if missing (sometimes an issue, but usually fine in new create)
+          
           # 4. Restore our custom files, overwriting the generated ones
           mv temp_src/main.dart lib/
           mv temp_src/pubspec.yaml ./
