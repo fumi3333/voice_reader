@@ -1,0 +1,25 @@
+name: voice_reader
+description: A native voice reader app.
+publish_to: 'none'
+version: 2.0.0+1
+
+environment:
+  sdk: '>=3.1.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+  flutter_tts: ^3.8.3
+  file_picker: ^6.1.1
+  shared_preferences: ^2.2.1
+  pdf_text: ^0.5.0
+  excel: ^4.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true

@@ -33,21 +33,41 @@ jobs:
           channel: stable
           flutter-version: 3.24.0
 
-      - name: Build APK
+      - name: Build APK (Native Flutter)
         run: |
-          yes | flet build apk
+          # 1. Create a temporary folder and backup our custom files
+          mkdir temp_src
+          mv lib/main.dart temp_src/
+          mv pubspec.yaml temp_src/
+          
+          # 2. Delete the lib folder so flutter create doesn't conflict
+          rm -rf lib
+          
+          # 3. Initialize a new Flutter project in the current directory
+          flutter create . --project-name=voice_reader --org=com.fumi3333 --platforms=android
+          
+          # 4. Restore our custom files, overwriting the generated ones
+          mv temp_src/main.dart lib/
+          mv temp_src/pubspec.yaml ./
+          rm -rf temp_src
+          
+          # 5. Get dependencies
+          flutter pub get
+          
+          # 6. Build the APK
+          flutter build apk --release
 
       - name: Upload APK to Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: build/apk/app-release.apk
+          files: build/app/outputs/flutter-apk/app-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
-      # Fallback: Upload as artifact if not a tag (so we can still test)
+      # Fallback: Upload as artifact if not a tag
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: voice-reader-apk
-          path: build/apk/app-release.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
