@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -274,7 +275,7 @@ class _HomePageState extends State<HomePage> {
         selectedIndex: _selectedIndex,
         onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.text_to_speech), label: "Reader"),
+          NavigationDestination(icon: Icon(Icons.record_voice_over), label: "Reader"),
           NavigationDestination(icon: Icon(Icons.history), label: "History"),
         ],
       ),

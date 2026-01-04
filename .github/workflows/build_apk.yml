@@ -46,8 +46,11 @@ jobs:
           # 3. Initialize a new Flutter project in the current directory
           flutter create . --project-name=voice_reader --org=com.fumi3333 --platforms=android
           
-          # Fix 1: Force compileSdk 35 safely (Replace whole line to avoid '35flutter' syntax error)
-          sed -i 's/compileSdk.*/compileSdk = 35/g' android/app/build.gradle || echo "compileSdk replacement failed or not found"
+          # Fix 1: Force compileSdk 35 safely
+          sed -i 's/compileSdk.*/compileSdk = 35/g' android/app/build.gradle || echo "compileSdk replacement failed"
+
+          # Fix 2: Upgrade Kotlin Gradle Plugin to 1.9.22 (Fixes 'Incompatible classes' error)
+          sed -i 's/id "org.jetbrains.kotlin.android" version ".*"/id "org.jetbrains.kotlin.android" version "1.9.22"/g' android/settings.gradle || echo "Kotlin version update failed"
           
           # Suggestion: Also ensure namespace is set if missing (sometimes an issue, but usually fine in new create)
           
