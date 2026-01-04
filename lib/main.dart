@@ -39,7 +39,11 @@ class _HomePageState extends State<HomePage> {
   // TTS State
   late FlutterTts flutterTts;
   bool _isPlaying = false;
-  double _speechRate = 0.5; // FlutterTTS rate is usually 0.0 to 1.0
+  double _speechRate = 0.5;
+  
+  // Chunking State
+  List<String> _chunks = [];
+  int _currentChunkIndex = 0;
   
   // Content State
   String _currentTitle = "No content loaded";
@@ -58,9 +62,8 @@ class _HomePageState extends State<HomePage> {
   void _initTts() async {
     flutterTts = FlutterTts();
     
-    // Modern FlutterTTS setup
     await flutterTts.setLanguage("ja-JP");
-    await flutterTts.setSpeechRate(0.5);
+    await flutterTts.setSpeechRate(_speechRate);
     await flutterTts.setVolume(1.0);
     await flutterTts.setPitch(1.0);
     await flutterTts.awaitSpeakCompletion(true);
@@ -70,30 +73,34 @@ class _HomePageState extends State<HomePage> {
     });
 
     flutterTts.setCompletionHandler(() {
-      setState(() => _isPlaying = false);
+      // When one chunk finishes, play the next
+      _playNextChunk();
     });
 
     flutterTts.setErrorHandler((msg) {
       setState(() => _isPlaying = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("読み上げエラー: $msg")),
-      );
+      // Ignore routine errors during stop/pause
+      if (msg != "interrupted") {
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text("読み上げエラー: $msg")),
+         );
+      }
     });
   }
 
   Future<void> _loadHistory() async {
     final prefs = await SharedPreferences.getInstance();
-    final List<String>? historyList = prefs.getStringList('history_encoded');
+    final List<String>? historyList = prefs.getStringList('history_encoded_v2');
     
     if (historyList != null) {
       setState(() {
         _history = historyList.map((e) {
             final parts = e.split("|||");
-            if (parts.length >= 3) {
+            if (parts.length >= 2) {
               return {
                 "title": parts[0],
                 "date": parts[1],
-                "content": parts.sublist(2).join("|||")
+                "content": parts.length > 2 ? parts.sublist(2).join("|||") : ""
               };
             }
             return {"title": "?", "date": "?", "content": ""};
@@ -104,10 +111,19 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _saveHistory(String title, String content) async {
     final date = DateTime.now().toString().substring(0, 16);
+    // Don't save full content if too long to prevent invalid transaction errors
+    // Just save the first 1000 chars as preview if it's huge, 
+    // OR we should really rely on file paths.
+    // For now, let's truncate content in history to 2000 chars for safety
+    String savedContent = content;
+    if (content.length > 5000) {
+      savedContent = content.substring(0, 5000) + "... (省略されました)";
+    }
+
     final entry = {
       "title": title,
       "date": date,
-      "content": content
+      "content": savedContent
     };
     
     setState(() {
@@ -117,7 +133,7 @@ class _HomePageState extends State<HomePage> {
 
     final prefs = await SharedPreferences.getInstance();
     final List<String> encoded = _history.map((e) => "${e['title']}|||${e['date']}|||${e['content']}").toList();
-    await prefs.setStringList('history_encoded', encoded);
+    await prefs.setStringList('history_encoded_v2', encoded); // V2 key to avoid crashes with old huge data
   }
 
   Future<void> _pickFile() async {
@@ -135,7 +151,6 @@ class _HomePageState extends State<HomePage> {
         if (ext == 'txt') {
           text = await file.readAsString();
         } else if (ext == 'pdf') {
-          // PDF Parsing
           try {
             final PdfDocument document = PdfDocument(inputBytes: file.readAsBytesSync());
             text = PdfTextExtractor(document).extractText();
@@ -152,6 +167,9 @@ class _HomePageState extends State<HomePage> {
               }
             }
         }
+        
+        // Normalize text
+        text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
 
         setState(() {
           _currentTitle = result.files.single.name;
@@ -166,18 +184,61 @@ class _HomePageState extends State<HomePage> {
       );
     }
   }
+  
+  void _splitTextIntoChunks(String text) {
+     _chunks = [];
+     int chunkSize = 200; // Safe size for smooth reading
+     
+     // Split by simple punctuation first to keep sentences intact
+     RegExp sentenceSplit = RegExp(r'(?<=[。？！\.\?\!\n])');
+     List<String> sentences = text.split(sentenceSplit);
+     
+     String currentChunk = "";
+     for (String sentence in sentences) {
+       if (currentChunk.length + sentence.length < chunkSize) {
+         currentChunk += sentence;
+       } else {
+         if (currentChunk.isNotEmpty) _chunks.add(currentChunk);
+         // If a single sentence is huge, just add it (TTS usually handles up to 3-4k, but 200 is safer for UI feedback)
+         // But let's split super huge sentences just in case
+         if (sentence.length > chunkSize) {
+            _chunks.add(sentence); // Let TTS try or implement finer split if needed
+         } else {
+            currentChunk = sentence;
+         }
+       }
+     }
+     if (currentChunk.isNotEmpty) _chunks.add(currentChunk);
+  }
 
   Future<void> _speak() async {
     if (_currentContent.isEmpty) return;
-    // Ensure params are set before speaking
-    await flutterTts.setLanguage("ja-JP");
-    await flutterTts.setSpeechRate(_speechRate);
-    await flutterTts.speak(_currentContent);
+    
+    // Only split if starting fresh
+    if (!_isPlaying) {
+        _splitTextIntoChunks(_currentContent);
+        _currentChunkIndex = 0;
+        await flutterTts.setLanguage("ja-JP");
+        await flutterTts.setSpeechRate(_speechRate);
+        _playNextChunk();
+    }
+  }
+
+  Future<void> _playNextChunk() async {
+    if (_currentChunkIndex < _chunks.length) {
+      String chunk = _chunks[_currentChunkIndex];
+      _currentChunkIndex++;
+      await flutterTts.speak(chunk);
+    } else {
+      setState(() => _isPlaying = false);
+    }
   }
 
   Future<void> _stop() async {
     await flutterTts.stop();
+    setState(() => _isPlaying = false);
   }
+
 
   @override
   Widget build(BuildContext context) {
