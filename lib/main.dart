@@ -66,9 +66,55 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  // ... (TTS init code remains same) ...
+  void _initTts() async {
+    flutterTts = FlutterTts();
+    
+    await flutterTts.setLanguage("ja-JP");
+    await flutterTts.setSpeechRate(_speechRate);
+    await flutterTts.setVolume(1.0);
+    await flutterTts.setPitch(1.0);
+    await flutterTts.awaitSpeakCompletion(true);
 
-  // ... (History load code remains same) ...
+    flutterTts.setStartHandler(() {
+      setState(() => _isPlaying = true);
+    });
+
+    flutterTts.setCompletionHandler(() {
+      // When one chunk finishes, play the next
+      _playNextChunk();
+    });
+
+    flutterTts.setErrorHandler((msg) {
+      setState(() => _isPlaying = false);
+      // Ignore routine errors during stop/pause
+      if (msg != "interrupted") {
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text("読み上げエラー: $msg")),
+         );
+      }
+    });
+  }
+
+  Future<void> _loadHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String>? historyList = prefs.getStringList('history_encoded_v2');
+    
+    if (historyList != null) {
+      setState(() {
+        _history = historyList.map((e) {
+            final parts = e.split("|||");
+            if (parts.length >= 2) {
+              return {
+                "title": parts[0],
+                "date": parts[1],
+                "content": parts.length > 2 ? parts.sublist(2).join("|||") : ""
+              };
+            }
+            return {"title": "?", "date": "?", "content": ""};
+        }).toList();
+      });
+    }
+  }
 
   Future<void> _saveHistory(String title, String content) async {
     if (content.trim().isEmpty) return; // Don't save empty
@@ -145,7 +191,31 @@ class _HomePageState extends State<HomePage> {
     }
   }
   
-  // ... (Chunking code remains same) ...
+  void _splitTextIntoChunks(String text) {
+     _chunks = [];
+     int chunkSize = 200; // Safe size for smooth reading
+     
+     // Split by simple punctuation first to keep sentences intact
+     RegExp sentenceSplit = RegExp(r'(?<=[。？！\.\?\!\n])');
+     List<String> sentences = text.split(sentenceSplit);
+     
+     String currentChunk = "";
+     for (String sentence in sentences) {
+       if (currentChunk.length + sentence.length < chunkSize) {
+         currentChunk += sentence;
+       } else {
+         if (currentChunk.isNotEmpty) _chunks.add(currentChunk);
+         // If a single sentence is huge, just add it (TTS usually handles up to 3-4k, but 200 is safer for UI feedback)
+         // But let's split super huge sentences just in case
+         if (sentence.length > chunkSize) {
+            _chunks.add(sentence); // Let TTS try or implement finer split if needed
+         } else {
+            currentChunk = sentence;
+         }
+       }
+     }
+     if (currentChunk.isNotEmpty) _chunks.add(currentChunk);
+  }
 
   Future<void> _speak() async {
     final text = _textController.text;
@@ -164,7 +234,20 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // ... (PlayNextChunk and Stop remain same) ...
+  Future<void> _playNextChunk() async {
+    if (_currentChunkIndex < _chunks.length) {
+      String chunk = _chunks[_currentChunkIndex];
+      _currentChunkIndex++;
+      await flutterTts.speak(chunk);
+    } else {
+      setState(() => _isPlaying = false);
+    }
+  }
+
+  Future<void> _stop() async {
+    await flutterTts.stop();
+    setState(() => _isPlaying = false);
+  }
   
   void _clearAndSave() {
     if (_textController.text.isNotEmpty) {
