@@ -195,8 +195,8 @@ class _HomePageState extends State<HomePage> {
      _chunks = [];
      int chunkSize = 200; 
      
-     // 1. Initial split by punctuation
-     RegExp sentenceSplit = RegExp(r'(?<=[。？！\.\?\!\n])');
+     // 1. Initial split by punctuation (including commas for smoother flow)
+     RegExp sentenceSplit = RegExp(r'(?<=[。？！\.\?\!\n、,])');
      List<String> sentences = text.split(sentenceSplit);
      
      String currentChunk = "";
