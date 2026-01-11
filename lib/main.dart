@@ -193,22 +193,32 @@ class _HomePageState extends State<HomePage> {
   
   void _splitTextIntoChunks(String text) {
      _chunks = [];
-     int chunkSize = 200; // Safe size for smooth reading
+     int chunkSize = 200; 
      
-     // Split by simple punctuation first to keep sentences intact
+     // 1. Initial split by punctuation
      RegExp sentenceSplit = RegExp(r'(?<=[。？！\.\?\!\n])');
      List<String> sentences = text.split(sentenceSplit);
      
      String currentChunk = "";
      for (String sentence in sentences) {
+       // 2. If valid size, accumulate
        if (currentChunk.length + sentence.length < chunkSize) {
          currentChunk += sentence;
        } else {
+         // Push current acc
          if (currentChunk.isNotEmpty) _chunks.add(currentChunk);
-         // If a single sentence is huge, just add it (TTS usually handles up to 3-4k, but 200 is safer for UI feedback)
-         // But let's split super huge sentences just in case
+         currentChunk = "";
+
+         // 3. If the single sentence itself is huge (e.g. no punctuation), force split
          if (sentence.length > chunkSize) {
-            _chunks.add(sentence); // Let TTS try or implement finer split if needed
+            String tempParams = sentence;
+            while (tempParams.length > chunkSize) {
+              _chunks.add(tempParams.substring(0, chunkSize));
+              tempParams = tempParams.substring(chunkSize);
+            }
+            if (tempParams.isNotEmpty) {
+               currentChunk = tempParams;
+            }
          } else {
             currentChunk = sentence;
          }
@@ -218,15 +228,21 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _speak() async {
+    // Hide keyboard if it's open
+    FocusScope.of(context).unfocus();
+  
     final text = _textController.text;
-    if (text.isEmpty) return;
+    if (text.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+           const SnackBar(content: Text("テキストが空です")),
+        );
+        return;
+    }
     
-    // Only split if starting fresh
     if (!_isPlaying) {
-        // Update history with latest edits before speaking if it was modified?
-        // Ideally we don't spam history. Let's just speak.
-        
         _splitTextIntoChunks(text);
+        if (_chunks.isEmpty) return;
+
         _currentChunkIndex = 0;
         await flutterTts.setLanguage("ja-JP");
         await flutterTts.setSpeechRate(_speechRate);
