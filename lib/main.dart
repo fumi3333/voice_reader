@@ -220,14 +220,14 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _speak() async {
-    FocusScope.of(context).unfocus(); // Hide keyboard
+    FocusScope.of(context).unfocus(); // キーボードを閉じる
     final text = _textController.text;
     if (text.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("テキストが空です")));
         return;
     }
     
-    // Switch to Read Mode automatically
+    // 閲覧モードへ自動切り替え
     if (!_isReadMode) {
         setState(() => _isReadMode = true);
         _splitTextIntoChunks(text);
@@ -235,51 +235,13 @@ class _HomePageState extends State<HomePage> {
     }
 
     if (_isPaused) {
-        // Resume
-        _playNextChunk(resume: true);
+        _speakCurrentChunk(); // 再開
     } else if (!_isPlaying) {
-        // Start fresh
-        if (_chunks.isEmpty) _splitTextIntoChunks(text); // Ensure chunks exist
+        if (_chunks.isEmpty) _splitTextIntoChunks(text);
         _currentChunkIndex = 0; 
+        
         await flutterTts.setLanguage("ja-JP");
         await flutterTts.setSpeechRate(_speechRate);
-        _playNextChunk();
-    }
-  }
-
-  Future<void> _playNextChunk({bool resume = false}) async {
-    if (resume) {
-        // If resuming, index shouldn't increment, just speak current/next logic
-        // But FlutterTTS doesn't support 'resume' position perfectly for chunks.
-        // We just re-speak the current chunk.
-    } else {
-        // Normal progression handled by completion handler
-    }
-
-    if (_currentChunkIndex < _chunks.length) {
-      setState(() {
-           _isPlaying = true;
-           _isPaused = false;
-      });
-      _scrollToCurrentChunk();
-      
-      // Dynamic speed update
-      await flutterTts.setSpeechRate(_speechRate);
-      await flutterTts.speak(_chunks[_currentChunkIndex]);
-      
-      // Increment *after* speak starts? No, completion handler calls this again.
-      // So we increment index in completion handler logic? 
-      // Actually, standard pattern: Speak -> onComplete -> Index++ -> Speak.
-      // So here we just speak.
-    } else {
-      setState(() {
-           _isPlaying = false;
-           _isPaused = false;
-           _currentChunkIndex = 0; // Reset for next time
-      });
-    }
-  }
-  
   // Custom completion logic hook
   // We need to override the one set in initTts to increment index
   // Actually initTts calls _playNextChunk. So we should increment there.
@@ -295,29 +257,7 @@ class _HomePageState extends State<HomePage> {
   // So inside `_playNextChunk`, we should determine if we need to advance or just play current.
   // It's ambiguous. Let's make explicit methods.
 
-  Future<void> _nextChunkLogic() async {
-      _currentChunkIndex++;
-      if (_currentChunkIndex >= _chunks.length) {
-          setState(() {
-            _isPlaying = false; 
-            _isReadMode = false; // Optional: Exit read mode on finish
-          });
-          return;
-      }
-      _speakCurrentChunk();
-  }
-  
-  Future<void> _speakCurrentChunk() async {
-      if (_currentChunkIndex >= 0 && _currentChunkIndex < _chunks.length) {
-          setState(() {
-              _isPlaying = true;
-              _isPaused = false;
-          });
-          _scrollToCurrentChunk();
-          await flutterTts.setSpeechRate(_speechRate);
-          await flutterTts.speak(_chunks[_currentChunkIndex]);
-      }
-  }
+
   
   Future<void> _pause() async {
       await flutterTts.stop(); // Stop engine
@@ -393,7 +333,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Voice Reader"),
+        title: const Text("ボイス・リーダー"),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
             // Mode Toggle
