@@ -101,8 +101,6 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  // ... (History Loading/Saving remains same) ...
-
   Future<void> _loadHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final List<String>? historyList = prefs.getStringList('history_encoded_v2');
@@ -313,9 +311,6 @@ class _HomePageState extends State<HomePage> {
          }
      }
   }
-  
-  // Updating initTTS to use new logic
-  // ... (Update in next block) ...
 
   void _clearAndSave() {
     if (_textController.text.isNotEmpty) {
