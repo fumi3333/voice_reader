@@ -242,23 +242,36 @@ class _HomePageState extends State<HomePage> {
         
         await flutterTts.setLanguage("ja-JP");
         await flutterTts.setSpeechRate(_speechRate);
-  // Custom completion logic hook
-  // We need to override the one set in initTts to increment index
-  // Actually initTts calls _playNextChunk. So we should increment there.
-  
-  // Let's refine the flow
-  // Speak(i) -> Complete -> i++ -> Speak(i)
-  
-  // Correction: _playNextChunk should be called by 'speak' button (INIT) and 'completion'.
-  // If 'speak' calls it, it plays index 0.
-  // Completion calls it, we must increment index BEFORE playing.
-  
-  // Wait, the initTts completion handler calls `_playNextChunk`.
-  // So inside `_playNextChunk`, we should determine if we need to advance or just play current.
-  // It's ambiguous. Let's make explicit methods.
+  // 次のチャンクへ進んで再生（完了ハンドラから呼ばれる）
+  Future<void> _playNextChunk() async {
+    setState(() {
+       _currentChunkIndex++;
+    });
+    if (_currentChunkIndex < _chunks.length) {
+      _speakCurrentChunk();
+    } else {
+      _stop(); // 最後まで読んだら停止
+    }
+  }
 
+  // 現在のインデックスのチャンクを再生
+  Future<void> _speakCurrentChunk() async {
+    if (_currentChunkIndex >= 0 && _currentChunkIndex < _chunks.length) {
+      setState(() {
+           _isPlaying = true;
+           _isPaused = false;
+      });
+      _scrollToCurrentChunk();
+      
+      await flutterTts.setSpeechRate(_speechRate);
+      await flutterTts.speak(_chunks[_currentChunkIndex]);
+    }
+  }
 
-  
+  Future<void> _stop() async {
+    await flutterTts.stop();
+    setState(() => _isPlaying = false);
+  }  
   Future<void> _pause() async {
       await flutterTts.stop(); // Stop engine
       setState(() {
