@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:excel/excel.dart';
+import 'package:excel/excel.dart' hide Border;
 import 'package:syncfusion_flutter_pdf/pdf.dart'; 
 
 void main() {
@@ -51,7 +51,7 @@ class _HomePageState extends State<HomePage> {
   
   // Content State
   String _currentTitle = "新規テキスト";
-  TextEditingController _textController = TextEditingController(); // Controller for editing
+  final TextEditingController _textController = TextEditingController(); // Controller for editing
   
   // History State
   List<Map<String, String>> _history = [];
@@ -144,6 +144,8 @@ class _HomePageState extends State<HomePage> {
         type: FileType.custom,
         allowedExtensions: ['txt', 'pdf', 'xlsx'],
       );
+      
+      if (!mounted) return;
 
       if (result != null) {
         File file = File(result.files.single.path!);
