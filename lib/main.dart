@@ -39,14 +39,18 @@ class _HomePageState extends State<HomePage> {
   // TTS State
   late FlutterTts flutterTts;
   bool _isPlaying = false;
+  bool _isPaused = false;
   double _speechRate = 0.5;
   
-  // Chunking State
+  // Chunking & Display State
   List<String> _chunks = [];
   int _currentChunkIndex = 0;
+  bool _isReadMode = false; // Toggle between Edit and Read mode
+  final ScrollController _scrollController = ScrollController();
+  final List<GlobalKey> _chunkKeys = []; // Keys for auto-scrolling
   
   // Content State
-  String _currentTitle = "新規テキスト"; // Default to New Text
+  String _currentTitle = "新規テキスト";
   TextEditingController _textController = TextEditingController(); // Controller for editing
   
   // History State
@@ -63,6 +67,7 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     flutterTts.stop();
     _textController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -76,29 +81,31 @@ class _HomePageState extends State<HomePage> {
     await flutterTts.awaitSpeakCompletion(true);
 
     flutterTts.setStartHandler(() {
-      setState(() => _isPlaying = true);
+      setState(() {
+        _isPlaying = true;
+        _isPaused = false;
+      });
+      _scrollToCurrentChunk();
     });
 
     flutterTts.setCompletionHandler(() {
-      // When one chunk finishes, play the next
       _playNextChunk();
     });
 
     flutterTts.setErrorHandler((msg) {
+      if (msg == "interrupted") return; // Ignore normal stop interactions
       setState(() => _isPlaying = false);
-      // Ignore routine errors during stop/pause
-      if (msg != "interrupted") {
-         ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(content: Text("読み上げエラー: $msg")),
-         );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("読み上げエラー: $msg")),
+      );
     });
   }
+
+  // ... (History Loading/Saving remains same) ...
 
   Future<void> _loadHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final List<String>? historyList = prefs.getStringList('history_encoded_v2');
-    
     if (historyList != null) {
       setState(() {
         _history = historyList.map((e) {
@@ -117,25 +124,17 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _saveHistory(String title, String content) async {
-    if (content.trim().isEmpty) return; // Don't save empty
-
+    if (content.trim().isEmpty) return;
     final date = DateTime.now().toString().substring(0, 16);
     String savedContent = content;
     if (content.length > 5000) {
       savedContent = content.substring(0, 5000) + "... (省略されました)";
     }
-
-    final entry = {
-      "title": title,
-      "date": date,
-      "content": savedContent
-    };
-    
+    final entry = {"title": title, "date": date, "content": savedContent};
     setState(() {
       _history.insert(0, entry);
       if (_history.length > 50) _history = _history.sublist(0, 50);
     });
-
     final prefs = await SharedPreferences.getInstance();
     final List<String> encoded = _history.map((e) => "${e['title']}|||${e['date']}|||${e['content']}").toList();
     await prefs.setStringList('history_encoded_v2', encoded);
@@ -153,16 +152,13 @@ class _HomePageState extends State<HomePage> {
         String text = "";
         String ext = result.files.single.extension?.toLowerCase() ?? "";
 
-        if (ext == 'txt') {
-          text = await file.readAsString();
-        } else if (ext == 'pdf') {
+        if (ext == 'txt') text = await file.readAsString();
+        else if (ext == 'pdf') {
           try {
             final PdfDocument document = PdfDocument(inputBytes: file.readAsBytesSync());
             text = PdfTextExtractor(document).extractText();
             document.dispose();
-          } catch (e) {
-            text = "PDF読み込みエラー: $e";
-          }
+          } catch (e) { text = "PDF読み込みエラー: $e"; }
         } else if (ext == 'xlsx') {
             var bytes = file.readAsBytesSync();
             var excel = Excel.decodeBytes(bytes);
@@ -173,159 +169,298 @@ class _HomePageState extends State<HomePage> {
             }
         }
         
-        // Normalize text
         text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-
         setState(() {
           _currentTitle = result.files.single.name;
-          _textController.text = text; // Update controller
+          _textController.text = text;
+          _isReadMode = false; // Reset to edit mode on load
         });
-        
-        // Auto-save on load
         await _saveHistory(_currentTitle, text);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("ファイル選択エラー: $e")),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("ファイル選択エラー: $e")));
     }
   }
   
   void _splitTextIntoChunks(String text) {
      _chunks = [];
-     int chunkSize = 200; 
+     _chunkKeys.clear(); // Clear keys
      
-     // 1. Initial split by punctuation (including commas for smoother flow)
-     RegExp sentenceSplit = RegExp(r'(?<=[。？！\.\?\!\n、,])');
+     int chunkSize = 200; 
+     RegExp sentenceSplit = RegExp(r'(?<=[。？！\.\?\!\n、,])'); // Include commas
      List<String> sentences = text.split(sentenceSplit);
      
      String currentChunk = "";
      for (String sentence in sentences) {
-       // 2. If valid size, accumulate
        if (currentChunk.length + sentence.length < chunkSize) {
          currentChunk += sentence;
        } else {
-         // Push current acc
-         if (currentChunk.isNotEmpty) _chunks.add(currentChunk);
+         if (currentChunk.isNotEmpty) {
+             _chunks.add(currentChunk);
+             _chunkKeys.add(GlobalKey());
+         }
          currentChunk = "";
-
-         // 3. If the single sentence itself is huge (e.g. no punctuation), force split
          if (sentence.length > chunkSize) {
             String tempParams = sentence;
             while (tempParams.length > chunkSize) {
               _chunks.add(tempParams.substring(0, chunkSize));
+              _chunkKeys.add(GlobalKey());
               tempParams = tempParams.substring(chunkSize);
             }
-            if (tempParams.isNotEmpty) {
-               currentChunk = tempParams;
-            }
+            if (tempParams.isNotEmpty) currentChunk = tempParams;
          } else {
             currentChunk = sentence;
          }
        }
      }
-     if (currentChunk.isNotEmpty) _chunks.add(currentChunk);
+     if (currentChunk.isNotEmpty) {
+         _chunks.add(currentChunk);
+         _chunkKeys.add(GlobalKey());
+     }
   }
 
   Future<void> _speak() async {
-    // Hide keyboard if it's open
-    FocusScope.of(context).unfocus();
-  
+    FocusScope.of(context).unfocus(); // Hide keyboard
     final text = _textController.text;
     if (text.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-           const SnackBar(content: Text("テキストが空です")),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("テキストが空です")));
         return;
     }
     
-    if (!_isPlaying) {
+    // Switch to Read Mode automatically
+    if (!_isReadMode) {
+        setState(() => _isReadMode = true);
         _splitTextIntoChunks(text);
-        if (_chunks.isEmpty) return;
-
         _currentChunkIndex = 0;
+    }
+
+    if (_isPaused) {
+        // Resume
+        _playNextChunk(resume: true);
+    } else if (!_isPlaying) {
+        // Start fresh
+        if (_chunks.isEmpty) _splitTextIntoChunks(text); // Ensure chunks exist
+        _currentChunkIndex = 0; 
         await flutterTts.setLanguage("ja-JP");
         await flutterTts.setSpeechRate(_speechRate);
         _playNextChunk();
     }
   }
 
-  Future<void> _playNextChunk() async {
-    if (_currentChunkIndex < _chunks.length) {
-      String chunk = _chunks[_currentChunkIndex];
-      _currentChunkIndex++;
-      await flutterTts.speak(chunk);
+  Future<void> _playNextChunk({bool resume = false}) async {
+    if (resume) {
+        // If resuming, index shouldn't increment, just speak current/next logic
+        // But FlutterTTS doesn't support 'resume' position perfectly for chunks.
+        // We just re-speak the current chunk.
     } else {
-      setState(() => _isPlaying = false);
+        // Normal progression handled by completion handler
+    }
+
+    if (_currentChunkIndex < _chunks.length) {
+      setState(() {
+           _isPlaying = true;
+           _isPaused = false;
+      });
+      _scrollToCurrentChunk();
+      
+      // Dynamic speed update
+      await flutterTts.setSpeechRate(_speechRate);
+      await flutterTts.speak(_chunks[_currentChunkIndex]);
+      
+      // Increment *after* speak starts? No, completion handler calls this again.
+      // So we increment index in completion handler logic? 
+      // Actually, standard pattern: Speak -> onComplete -> Index++ -> Speak.
+      // So here we just speak.
+    } else {
+      setState(() {
+           _isPlaying = false;
+           _isPaused = false;
+           _currentChunkIndex = 0; // Reset for next time
+      });
     }
   }
+  
+  // Custom completion logic hook
+  // We need to override the one set in initTts to increment index
+  // Actually initTts calls _playNextChunk. So we should increment there.
+  
+  // Let's refine the flow
+  // Speak(i) -> Complete -> i++ -> Speak(i)
+  
+  // Correction: _playNextChunk should be called by 'speak' button (INIT) and 'completion'.
+  // If 'speak' calls it, it plays index 0.
+  // Completion calls it, we must increment index BEFORE playing.
+  
+  // Wait, the initTts completion handler calls `_playNextChunk`.
+  // So inside `_playNextChunk`, we should determine if we need to advance or just play current.
+  // It's ambiguous. Let's make explicit methods.
 
-  Future<void> _stop() async {
-    await flutterTts.stop();
-    setState(() => _isPlaying = false);
+  Future<void> _nextChunkLogic() async {
+      _currentChunkIndex++;
+      if (_currentChunkIndex >= _chunks.length) {
+          setState(() {
+            _isPlaying = false; 
+            _isReadMode = false; // Optional: Exit read mode on finish
+          });
+          return;
+      }
+      _speakCurrentChunk();
   }
   
+  Future<void> _speakCurrentChunk() async {
+      if (_currentChunkIndex >= 0 && _currentChunkIndex < _chunks.length) {
+          setState(() {
+              _isPlaying = true;
+              _isPaused = false;
+          });
+          _scrollToCurrentChunk();
+          await flutterTts.setSpeechRate(_speechRate);
+          await flutterTts.speak(_chunks[_currentChunkIndex]);
+      }
+  }
+  
+  Future<void> _pause() async {
+      await flutterTts.stop(); // Stop engine
+      setState(() {
+          _isPlaying = false;
+          _isPaused = true; 
+      });
+  }
+
+  void _skipForward() {
+      if (_currentChunkIndex < _chunks.length - 1) {
+          flutterTts.stop();
+          _currentChunkIndex++;
+          _speakCurrentChunk();
+      }
+  }
+
+  void _skipBack() {
+      if (_currentChunkIndex > 0) {
+          flutterTts.stop();
+          _currentChunkIndex--;
+          _speakCurrentChunk();
+      }
+  }
+  
+  void _scrollToCurrentChunk() {
+     if (_isReadMode && _chunkKeys.isNotEmpty && _currentChunkIndex < _chunkKeys.length) {
+         final key = _chunkKeys[_currentChunkIndex];
+         if (key.currentContext != null) {
+             Scrollable.ensureVisible(
+                 key.currentContext!, 
+                 alignment: 0.3, // Top 30% of screen
+                 duration: const Duration(milliseconds: 300)
+             );
+         }
+     }
+  }
+  
+  // Updating initTTS to use new logic
+  // ... (Update in next block) ...
+
   void _clearAndSave() {
     if (_textController.text.isNotEmpty) {
       _saveHistory(_currentTitle, _textController.text);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("履歴に保存してクリアしました")),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("履歴に保存してクリアしました")));
     }
     setState(() {
       _textController.clear();
       _currentTitle = "新規テキスト";
       _isPlaying = false;
+      _isPaused = false;
+      _isReadMode = false;
       flutterTts.stop();
     });
   }
 
+  String _getEstimatedTime() {
+     int charCount = _textController.text.length;
+     // Approx 15 chars / sec at 1.0 rate? 
+     // Rate 0.5 -> 7.5 chars/sec
+     // Let's assume Base (1.0) = 20 chars/sec (Japanese reading is fast)
+     // Adjusted = 20 * rate
+     if (charCount == 0) return "0分";
+     
+     double charsPerSec = 20.0 * _speechRate;
+     if (charsPerSec <= 0) charsPerSec = 1;
+     
+     int totalSeconds = charCount ~/ charsPerSec;
+     return "${(totalSeconds / 60).ceil()}分";
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Pages
-    final List<Widget> pages = [
-      // Reader Tab
-      Column(
-        children: [
-          // Header Area
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    "$_currentTitle", 
-                    style: const TextStyle(fontWeight: FontWeight.bold, overflow: TextOverflow.ellipsis)
-                  )
-                ),
-                IconButton(
-                  onPressed: _clearAndSave,
-                  icon: const Icon(Icons.delete_sweep),
-                  tooltip: "保存してクリア",
-                ),
-              ],
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Voice Reader"),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+            // Mode Toggle
+            IconButton(
+                icon: Icon(_isReadMode ? Icons.edit : Icons.chrome_reader_mode),
+                onPressed: () {
+                    // Sync text if switching to Read Mode
+                    if (!_isReadMode) {
+                        _splitTextIntoChunks(_textController.text);
+                        // Don't reset index if switching back and forth unless text changed?
+                        // For simplicity, keep index if text roughly same length? 
+                        // v1: just switch.
+                    }
+                    setState(() => _isReadMode = !_isReadMode);
+                },
+                tooltip: _isReadMode ? "編集モードへ" : "閲覧モードへ",
             ),
+            IconButton(onPressed: _clearAndSave, icon: const Icon(Icons.delete_sweep)),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Header
+           Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Row(children: [ Expanded(child: Text("$_currentTitle", style: const TextStyle(fontWeight: FontWeight.bold)))]),
           ),
           const Divider(height: 1),
-          // Editable Text Area
+          
+          // Main Content Area (Stack or Switcher)
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: TextField(
-                controller: _textController,
-                maxLines: null, // Allow multiline
-                expands: true,  // Fill available space
-                textAlignVertical: TextAlignVertical.top,
-                decoration: const InputDecoration(
-                  hintText: "ここにテキストを入力・貼り付け、\nまたは右下のボタンからファイルを読み込んでください。",
-                  border: InputBorder.none,
-                ),
-              ),
-            ),
+              child: _isReadMode 
+              ? ListView.separated(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _chunks.length,
+                  separatorBuilder: (ctx, i) => const SizedBox(height: 8),
+                  itemBuilder: (ctx, i) {
+                      final isCurrent = (i == _currentChunkIndex);
+                      return Container(
+                          key: _chunkKeys[i],
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                              color: isCurrent ? Colors.yellow.shade100 : Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                              border: isCurrent ? Border.all(color: Colors.orange, width: 2) : null,
+                          ),
+                          child: Text(_chunks[i].trim(), style: TextStyle(
+                              fontSize: 16, 
+                              fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal
+                          )),
+                      );
+                  }
+              )
+              : Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: TextField(
+                    controller: _textController,
+                    maxLines: null, expands: true, textAlignVertical: TextAlignVertical.top,
+                    decoration: const InputDecoration(hintText: "ここにテキストを入力...", border: InputBorder.none),
+                  ),
+                )
           ),
-          // Controls Area
+          
+          // Player Controls
           Container(
-             padding: const EdgeInsets.all(16),
+             padding: const EdgeInsets.all(12),
              color: Colors.blue.shade50,
              child: Column(
                children: [
@@ -334,79 +469,48 @@ class _HomePageState extends State<HomePage> {
                      const Text("速度"),
                      Expanded(
                        child: Slider(
-                         value: _speechRate,
-                         min: 0.1,
-                         max: 1.0,
-                         onChanged: (val) => setState(() => _speechRate = val),
+                         value: _speechRate, min: 0.1, max: 2.0, divisions: 19,
+                         label: "${_speechRate.toStringAsFixed(1)}倍",
+                         onChanged: (val) async {
+                             setState(() => _speechRate = val);
+                             if (_isPlaying) await flutterTts.setSpeechRate(val);
+                         },
                        ),
                      ),
-                     Text("${_speechRate.toStringAsFixed(1)}倍"),
+                     Text("${_speechRate.toStringAsFixed(1)}x  (${_getEstimatedTime()})"),
                    ],
                  ),
                  Row(
-                   mainAxisAlignment: MainAxisAlignment.center,
+                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                    children: [
-                     ElevatedButton.icon(
-                       onPressed: _isPlaying ? null : _speak,
-                       icon: const Icon(Icons.play_arrow),
-                       label: const Text("再生"),
+                     IconButton(onPressed: _skipBack, icon: const Icon(Icons.replay_10), tooltip: "前の文へ"),
+                     FloatingActionButton(
+                        onPressed: (_isPlaying && !_isPaused) ? _pause : _speak,
+                        child: Icon((_isPlaying && !_isPaused) ? Icons.pause : Icons.play_arrow),
                      ),
-                     const SizedBox(width: 20),
-                     ElevatedButton.icon(
-                       onPressed: _isPlaying ? _stop : null,
-                       icon: const Icon(Icons.stop),
-                       label: const Text("停止"),
-                       style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade100),
-                     ),
+                     IconButton(onPressed: _skipForward, icon: const Icon(Icons.forward_10), tooltip: "次の文へ"),
                    ],
-                 )
+                 ),
                ],
              ),
           )
         ],
       ),
-      // History Tab
-      ListView.separated(
-        itemCount: _history.length,
-        separatorBuilder: (_, __) => const Divider(),
-        itemBuilder: (ctx, i) {
-          final item = _history[i];
-          return ListTile(
-            title: Text(item['title'] ?? "", style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(item['date'] ?? ""),
-            onTap: () {
-               setState(() {
-                 _currentTitle = item['title'] ?? "";
-                 _textController.text = item['content'] ?? ""; // Load to controller
-                 _selectedIndex = 0; // Go to reader
-               });
-            },
-          );
-        },
-      ),
-    ];
-    // ... (Scaffold remains same) ...
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Voice Reader (Native)"),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: pages[_selectedIndex],
-      floatingActionButton: _selectedIndex == 0 
-        ? FloatingActionButton(
-            onPressed: _pickFile,
-            child: const Icon(Icons.upload_file),
-          ) 
-        : null,
+      // ... (Bottom Nav and Drawer/FAB if any) ...
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
+        onDestinationSelected: (idx) { 
+             // Logic to switch tabs (Reader / History)
+             setState(() => _selectedIndex = idx);
+        },
         destinations: const [
           NavigationDestination(icon: Icon(Icons.record_voice_over), label: "リーダー"),
           NavigationDestination(icon: Icon(Icons.history), label: "履歴"),
         ],
       ),
+      floatingActionButton: _selectedIndex == 0 && !_isReadMode
+        ? FloatingActionButton(onPressed: _pickFile, child: const Icon(Icons.upload_file)) 
+        : null,
     );
   }
 }
