@@ -242,6 +242,10 @@ class _HomePageState extends State<HomePage> {
         
         await flutterTts.setLanguage("ja-JP");
         await flutterTts.setSpeechRate(_speechRate);
+        _speakCurrentChunk(); // 最初から再生
+    }
+  }
+
   // 次のチャンクへ進んで再生（完了ハンドラから呼ばれる）
   Future<void> _playNextChunk() async {
     setState(() {
@@ -271,7 +275,8 @@ class _HomePageState extends State<HomePage> {
   Future<void> _stop() async {
     await flutterTts.stop();
     setState(() => _isPlaying = false);
-  }  
+  }
+
   Future<void> _pause() async {
       await flutterTts.stop(); // Stop engine
       setState(() {
