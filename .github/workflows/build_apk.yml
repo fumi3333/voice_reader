@@ -36,24 +36,24 @@ jobs:
 
       - name: APKビルド (Native Flutter)
         run: |
-          # 1. 一時フォルダ作成とカスタムファイルの退避
+          # 1. Create a temporary folder and backup our custom files
           mkdir temp_src
           mv lib/main.dart temp_src/
           mv pubspec.yaml temp_src/
           
-          # 2. コンフリクト回避のため既存libを削除
+          # 2. Delete the lib folder so flutter create doesn't conflict
           rm -rf lib
           
-          # 3. 新規Flutterプロジェクトの初期化 (Android)
+          # 3. Initialize a new Flutter project in the current directory
           flutter create . --project-name=voice_reader --org=com.fumi3333 --platforms=android
           
-          # 修正1: compileSdk 34 を強制 (SDK 35はCI環境で未対応の場合があるため)
+          # Fix 1: Force compileSdk 34 (SDK 35 is too new for default CI build tools)
           sed -i 's/compileSdk.*/compileSdk = 34/g' android/app/build.gradle || echo "compileSdk replacement failed"
 
-          # 修正2: Kotlin Gradle Plugin を 1.9.22 に更新 (互換性エラー回避)
+          # Fix 2: Upgrade Kotlin Gradle Plugin to 1.9.22 (Fixes 'Incompatible classes' error)
           sed -i 's/id "org.jetbrains.kotlin.android" version ".*"/id "org.jetbrains.kotlin.android" version "1.9.22"/g' android/settings.gradle || echo "Kotlin version update failed"
           
-          # 4. 退避したファイルを復元
+          # 4. Restore our custom files, overwriting the generated ones
           mv temp_src/main.dart lib/
           mv temp_src/pubspec.yaml ./
           rm -rf temp_src
